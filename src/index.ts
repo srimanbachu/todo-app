@@ -7,31 +7,19 @@ import mongoose from 'mongoose'
 import 'dotenv/config'
 import { user } from './models/user.js'
 import bcrypt from 'bcrypt'
+import { connectDB } from './lib/utilits.js'
 
-
-export const connectDB = async () => {
-  try {
-    if (!(process.env.MONGODB_URL)) {
-      return 'not connected'
-    }
-    await mongoose.connect(process.env.MONGODB_URL) 
-    console.log('✅ MongoDB connected')
-  } catch (err) {
-    console.error('❌ MongoDB connection error:', err)
-  }
-}
 
 
 connectDB()
 
 const app = new Hono()
 
-
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 
 app.get('/signup', (c) => {
-  const html = readFileSync(join(__dirname, 'views', 'signup.html'), 'utf-8')
+  const html = readFileSync(join(__dirname, 'views', 'signup.html'),'utf-8')
   return c.html(html)
 })
 
@@ -102,40 +90,9 @@ app.post('/signup', async (c) => {
   return c.redirect('/todo')
 })
 
-app.get('/', (c) => {
-  return c.text('Hello Hono!')
-})
-
-app.get('/hello', (c) => {
-  return c.html('<h1>Hello World!</h1>')
-})
-
-
-
-
-
-
 //http://localhost:4000/calculate?a=5&b=10
 //?a=5&b=10
 
-app.get('/calculate', (c) => {
-
-  const a = c.req.query('a')
-  const b = c.req.query('b')
-
-
-  if (!a) {
-    return c.json({ 'result': 'a is not found' }, 400)
-  }
-
-  if (!b) {
-    return c.json({ 'result': 'b is not found' }, 400)
-  }
-
-  const sum = Number(a) + Number(b)
-
-  return c.json({ 'result': sum })
-})
 
 app.notFound((c) => {
   return c.text('This page dont exist, sorry!', 404)

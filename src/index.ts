@@ -33,7 +33,7 @@ app.use('/todo',async (c, next) => {
   } catch (error) {
     return c.text('Forbidden: Invalid or expired token', 403) // Invalid token
   }
-
+ 
   console.log(`[${c.req.method}] ${c.req.url}`)
   await next()
 })

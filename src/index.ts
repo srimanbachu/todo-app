@@ -1,106 +1,129 @@
 import { serve } from '@hono/node-server'
+import { readFileSync } from 'fs'
 import { Hono } from 'hono'
-import { dirname, join } from 'path'
+import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { readdir, readFileSync } from 'fs'
-import mongoose from 'mongoose'
+import { connectDB } from './lib/utilits'
+import { User as UserModel } from './models/user'
 import 'dotenv/config'
-import { user } from './models/user.js'
-import bcrypt from 'bcrypt'
-import { connectDB } from './lib/utilits.js'
-
-
-
+import { hash, compare } from 'bcrypt'
+import {sign, verify} from 'hono/jwt'
+connectDB()
 connectDB()
 
 const app = new Hono()
-
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 
+
+app.use(async (c, next) => {
+  const headers = c.req.header()
+  const cookies = headers.cookie.split('=')[1]
+  const token = cookies
+  console.log(token)
+  console.log(`[${c.req.method}] ${c.req.url}`)
+  await next()
+})
+
+// '/' route
+app.get('/', (c) => c.text(''))
+
+
+// signup route 
 app.get('/signup', (c) => {
-  const html = readFileSync(join(__dirname, 'views', 'signup.html'),'utf-8')
+  const filePath = join(__dirname, 'views', 'signup.html')
+  const html = readFileSync(filePath, 'utf-8')
   return c.html(html)
 })
-
-app.get('/todo', (c) => {
-  const html = readFileSync(join(__dirname, 'views', 'todo.html'), 'utf-8')
-  return c.html(html)
-})
-
-app.get('/login', (c) => {
-  const html = readFileSync(join(__dirname, 'views', 'login.html'), 'utf-8')
-  return c.html(html)
-})
-
-app.post('/signin', async (c) => {
-  const body = await c.req.parseBody()
-  const email = typeof body.email === 'string' ? body.email : ''
-  const password = typeof body.password === 'string' ? body.password : ''
-
-  if (!email || !password) {
-    const html = readFileSync(join(__dirname, 'views', 'login.html'), 'utf-8')
-    const htmlWithError = html.replace('<!--ERROR-->', `
-      <p class="text-red-500 text-sm mb-4 text-center">Email and password are required</p>
-    `)
-    return c.html(htmlWithError)
-  }
-
-  const foundUser = await user.findOne({ email })
-  if (!foundUser) {
-    // User not found, redirect to login with error
-    const html = readFileSync(join(__dirname, 'views', 'login.html'), 'utf-8')
-    const htmlWithError = html.replace('<!--ERROR-->', `
-      <p class="text-red-500 text-sm mb-4 text-center">Invalid email or password</p>
-    `)
-    return c.html(htmlWithError)
-  }
-  const isMatch = await bcrypt.compare(password, foundUser.password)
-  if (!isMatch) {
-    // Password does not match, redirect to login with error
-    const html = readFileSync(join(__dirname, 'views', 'login.html'), 'utf-8')
-    const htmlWithError = html.replace('<!--ERROR-->', `
-      <p class="text-red-500 text-sm mb-4 text-center">Invalid email or password</p>
-    `)
-    return c.html(htmlWithError)
-  }
-  // Password matches, redirect to todo
-  return c.redirect('/todo')
-})
-
+//signup endpoint
 app.post('/signup', async (c) => {
+  const body = await c.req.parseBody()
+  console.log(body)
+  const email = body.email
+  const name = body.name
+  const password = body.password
+  const confirmPassword = body["confirm-password"]
+  if (password !== confirmPassword) {
+    const filePath = join(__dirname, 'views', 'signup.html')
+    const html = readFileSync(filePath, 'utf-8').replace('<!--ERROR-->', `
+      <p class="text-red-500 text-sm mb-4 text-center">Passwords do not match,both password and confirm password should be the same</p>
+    `)
+    return c.html(html)
+  }
+  if
+    (typeof password !== 'string') {
+    return
+  }
+  const hashedPassword = await hash(password, 10)
+  console.log(hashedPassword)
+
+  await UserModel.create({
+    email: email,
+    name: name,
+    password: hashedPassword
+  })
+  return c.redirect('/todo')
+
+
+})
+// login route
+app.get('/login', (c) => {
+  const filePath = join(__dirname, 'views', 'login.html')
+  const html = readFileSync(filePath, 'utf-8')
+  return c.html(html)
+})
+
+// login endpoint 
+app.post('/login', async (c) => {
   const body = await c.req.parseBody()
   const email = body.email
   const password = body.password
-  const name = body.name
-  const confirmPassword = body['confirm-password']
-  if (password !== confirmPassword) {
-    const html = readFileSync(join(__dirname, 'views', 'signup.html'), 'utf-8')
-    const htmlWithError = html.replace('<!--ERROR-->', `
-      <p class="text-red-500 text-sm mb-4 text-center">Passwords do not match, please make sure password and confirm password are the same</p>
-    `)
 
-    return c.html(htmlWithError)
+  if (typeof password !== "string") {
+    return
   }
-  await user.create({
-    email,
-    fullName: name,
-    password: password
-  })
+
+  // 1. Find user
+  const user = await UserModel.findOne({ email })
+  if (!user) {
+    return c.json({ message: 'User not found' }, 404)
+  }
+
+  // 2. Compare password
+  const isPasswordValid = await compare(password, user.password)
+  if (!isPasswordValid) {
+    return c.json({ message: 'Invalid password' }, 401)
+  }
+
+  // 3. Sign token (JWS)
+  const token = await sign(
+    {
+      id: user._id,
+      email: user.email,
+      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 200000000000000 // 1 day expiry
+    },
+    process.env.JWT_SECRET!
+  )
+
+  // 4. ✅ Set cookie with token
+  c.header(
+    'Set-Cookie',
+    `token=${token}; HttpOnly; Path=/; Max-Age=8640000000000; SameSite=Strict`
+  )
+
+  // 5. Redirect or send response
   return c.redirect('/todo')
 })
 
-//http://localhost:4000/calculate?a=5&b=10
-//?a=5&b=10
 
-
-app.notFound((c) => {
-  return c.text('This page dont exist, sorry!', 404)
+// todo route
+app.get('/todo', (c) => {
+  const filePath = join(__dirname, 'views', 'todo.html')
+  const html = readFileSync(filePath, 'utf-8')
+  return c.html(html)
 })
 
 serve({
   fetch: app.fetch,
-  port: 4000
-}, (info) => {
-  console.log(`Server is running on http://localhost:${info.port}`)
+  port: 1212,
 })

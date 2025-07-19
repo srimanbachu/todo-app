@@ -9,18 +9,31 @@ import 'dotenv/config'
 import { hash, compare } from 'bcrypt'
 import {sign, verify} from 'hono/jwt'
 connectDB()
-connectDB()
+
+
 
 const app = new Hono()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 
 
-app.use(async (c, next) => {
+app.use('/todo',async (c, next) => {
   const headers = c.req.header()
   const cookies = headers.cookie.split('=')[1]
   const token = cookies
   console.log(token)
+
+  if (!token) {
+    return c.redirect('/login')
+  }
+
+  try {
+    const decoded = verify(token, process.env.JWT_SECRET!) // Verify token
+    await next() // Continue to route
+  } catch (error) {
+    return c.text('Forbidden: Invalid or expired token', 403) // Invalid token
+  }
+
   console.log(`[${c.req.method}] ${c.req.url}`)
   await next()
 })
@@ -86,14 +99,20 @@ app.post('/login', async (c) => {
   // 1. Find user
   const user = await UserModel.findOne({ email })
   if (!user) {
-    return c.json({ message: 'User not found' }, 404)
-  }
+    const filePath = join(__dirname, 'views', 'login.html')
+    const html = readFileSync(filePath, 'utf-8').replace('<!--ERROR-->', `
+      <p class="text-red-500 text-sm mb-4 text-center">The email you entered doesn't match any account. If you haven't signed up yet, please create a new account</p>
+    `)
+    return c.html(html)  }
 
   // 2. Compare password
   const isPasswordValid = await compare(password, user.password)
   if (!isPasswordValid) {
-    return c.json({ message: 'Invalid password' }, 401)
-  }
+    const filePath = join(__dirname, 'views', 'login.html')
+    const html = readFileSync(filePath, 'utf-8').replace('<!--ERROR-->', `
+      <p class="text-red-500 text-sm mb-4 text-center">The password you entered is incorrect. Please try again with the correct password</p>
+    `)
+    return c.html(html)  }
 
   // 3. Sign token (JWS)
   const token = await sign(
